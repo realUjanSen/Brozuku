@@ -20,6 +20,7 @@ import moe.shizuku.manager.adb.AdbMdns
 import moe.shizuku.manager.databinding.AdbDialogBinding
 import moe.shizuku.manager.starter.StarterActivity
 import moe.shizuku.manager.utils.EnvironmentUtils
+import moe.shizuku.manager.utils.SettingsPage
 
 @RequiresApi(Build.VERSION_CODES.R)
 class AdbDialogFragment : DialogFragment() {
@@ -32,20 +33,14 @@ class AdbDialogFragment : DialogFragment() {
         val context = requireContext()
         binding = AdbDialogBinding.inflate(layoutInflater)
         adbMdns = AdbMdns(context, AdbMdns.TLS_CONNECT) {
-            port.postValue(it)
+            port.postValue(it.second)
         }
-
-        val port = EnvironmentUtils.getAdbTcpPort()
 
         val builder = MaterialAlertDialogBuilder(context).apply {
             setTitle(R.string.dialog_adb_discovery)
             setView(binding.root)
             setNegativeButton(android.R.string.cancel, null)
             setPositiveButton(R.string.development_settings, null)
-
-            if (port != -1) {
-                setNeutralButton("$port", null)
-            }
         }
         val dialog = builder.create()
         dialog.setCanceledOnTouchOutside(false)
@@ -61,38 +56,22 @@ class AdbDialogFragment : DialogFragment() {
     private fun onDialogShow(dialog: AlertDialog) {
         adbMdns.start()
         val context = dialog.context
-        if (context.checkSelfPermission(WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED) {
-            val cr = context.contentResolver
-            Settings.Global.putInt(cr, "adb_wifi_enabled", 1)
-            Settings.Global.putInt(cr, Settings.Global.ADB_ENABLED, 1)
-            Settings.Global.putLong(cr, "adb_allowed_connection_time", 0L)
-        }
+        if (context.checkSelfPermission(WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED)
+            Settings.Global.putInt(context.contentResolver, "adb_wifi_enabled", 1)
 
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            intent.putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
-            try {
-                it.context.startActivity(intent)
-            } catch (_: ActivityNotFoundException) {
-            }
-        }
-
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            startAndDismiss(EnvironmentUtils.getAdbTcpPort())
+            SettingsPage.Developer.HighlightWirelessDebugging.launch(context)
         }
 
         port.observe(this) {
             if (it > 65535 || it < 1) return@observe
+            port.removeObservers(this)
             startAndDismiss(it)
         }
     }
 
     private fun startAndDismiss(port: Int) {
-        val host = "127.0.0.1"
         val intent = Intent(context, StarterActivity::class.java).apply {
-            putExtra(StarterActivity.EXTRA_IS_ROOT, false)
-            putExtra(StarterActivity.EXTRA_HOST, host)
             putExtra(StarterActivity.EXTRA_PORT, port)
         }
         requireContext().startActivity(intent)

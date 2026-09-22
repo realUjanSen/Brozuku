@@ -1,6 +1,7 @@
 package moe.shizuku.manager.home
 
 import android.os.Build
+import kotlinx.coroutines.CoroutineScope
 import moe.shizuku.manager.management.AppsViewModel
 import moe.shizuku.manager.utils.EnvironmentUtils
 import moe.shizuku.manager.utils.UserHandleCompat
@@ -8,7 +9,7 @@ import rikka.recyclerview.IdBasedRecyclerViewAdapter
 import rikka.recyclerview.IndexCreatorPool
 import rikka.shizuku.Shizuku
 
-class HomeAdapter(private val homeModel: HomeViewModel, private val appsModel: AppsViewModel) :
+class HomeAdapter(private val homeModel: HomeViewModel, private val appsModel: AppsViewModel, private val scope: CoroutineScope) :
     IdBasedRecyclerViewAdapter(ArrayList()) {
 
     init {
@@ -26,6 +27,8 @@ class HomeAdapter(private val homeModel: HomeViewModel, private val appsModel: A
         private const val ID_START_ADB = 5L
         private const val ID_LEARN_MORE = 6L
         private const val ID_ADB_PERMISSION_LIMITED = 7L
+        private const val ID_AUTOMATION = 8L
+        private const val ID_STEALTH = 9L
     }
 
     override fun onCreateCreatorPool(): IndexCreatorPool {
@@ -52,23 +55,21 @@ class HomeAdapter(private val homeModel: HomeViewModel, private val appsModel: A
         }
 
         if (isPrimaryUser) {
-            val root = EnvironmentUtils.isRooted()
             val rootRestart = running && status.uid == 0
 
-            if (root) {
-                addItem(StartRootViewHolder.CREATOR, rootRestart, ID_START_ROOT)
-            }
+            if (EnvironmentUtils.isRooted()) addItem(StartRootViewHolder.CREATOR, rootRestart, ID_START_ROOT)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R || EnvironmentUtils.getAdbTcpPort() > 0) {
-                addItem(StartWirelessAdbViewHolder.CREATOR, null, ID_START_WADB)
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ||
+                EnvironmentUtils.isTelevision() ||
+                EnvironmentUtils.getAdbTcpPort() > 0
+            ) addItem(StartWirelessAdbViewHolder.creator(scope), null, ID_START_WADB)
 
             addItem(StartAdbViewHolder.CREATOR, null, ID_START_ADB)
-
-            if (!root) {
-                addItem(StartRootViewHolder.CREATOR, rootRestart, ID_START_ROOT)
-            }
         }
+        addItem(AutomationViewHolder.CREATOR, null, ID_AUTOMATION)
+
+        addItem(StealthViewHolder.CREATOR, null, ID_STEALTH)
+
         addItem(LearnMoreViewHolder.CREATOR, null, ID_LEARN_MORE)
         notifyDataSetChanged()
     }

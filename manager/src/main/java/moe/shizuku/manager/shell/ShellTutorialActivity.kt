@@ -5,15 +5,17 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.isVisible
+import kotlin.math.roundToInt
 import moe.shizuku.manager.Helps
 import moe.shizuku.manager.R
 import moe.shizuku.manager.app.AppBarActivity
 import moe.shizuku.manager.databinding.TerminalTutorialActivityBinding
 import moe.shizuku.manager.ktx.toHtml
 import moe.shizuku.manager.utils.CustomTabsHelper
+import rikka.compatibility.DeviceCompatibility
 import rikka.html.text.HtmlCompat
 import rikka.insets.*
-import kotlin.math.roundToInt
 
 class ShellTutorialActivity : AppBarActivity() {
 
@@ -50,7 +52,19 @@ class ShellTutorialActivity : AppBarActivity() {
 
             fun writeToDocument(name: String) {
                 DocumentsContract.createDocument(contentResolver, doc, "application/octet-stream", name)?.runCatching {
-                    cr.openOutputStream(this)?.let { assets.open(name).copyTo(it) }
+                    cr.openOutputStream(this)?.let { output ->
+                        assets.open(name).use { input ->
+                            if (name == SH_NAME) {
+                                input.bufferedReader().use {
+                                    val text = it.readText()
+                                        .replace("MANAGER_PKG", applicationContext.packageName)
+                                    output.write(text.toByteArray())
+                                }
+                            } else {
+                                input.copyTo(output)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -61,8 +75,7 @@ class ShellTutorialActivity : AppBarActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val binding = TerminalTutorialActivityBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        val binding = TerminalTutorialActivityBinding.inflate(layoutInflater, rootView, true)
 
         binding.content.apply {
             setInitialPadding(
@@ -76,31 +89,26 @@ class ShellTutorialActivity : AppBarActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         binding.apply {
+            if (DeviceCompatibility.isMiui()) {
+                miui.isVisible = true
+            }
+
             val shName = "<font face=\"monospace\">$SH_NAME</font>"
             val dexName = "<font face=\"monospace\">$DEX_NAME</font>"
 
-            summary.text =
-                getString(R.string.rish_description, shName).toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
+            summary.text = getString(R.string.rish_description, shName)
+                .toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
 
-            text1.text = getString(R.string.terminal_tutorial_1, shName, dexName).toHtml()
+            text1.text = getString(R.string.terminal_tutorial_1)
+            summary1.text = getString(R.string.terminal_tutorial_1_description, shName, dexName)
+                .toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
 
             text2.text = getString(R.string.terminal_tutorial_2, shName).toHtml()
-            summary2.text = getString(
-                R.string.terminal_tutorial_2_description,
-                "Termux",
-                "<font face=\"monospace\">PKG</font>",
-                "<font face=\"monospace\">com.termux</font>",
-                "<font face=\"monospace\">com.termux</font>",
-            ).toHtml()
+            command2.text = "cp /sdcard/chosen-folder/* /data/data/terminal.package.name/files"
+            summary2.text = getString(R.string.terminal_tutorial_2_description, shName, shName, ".bashrc").toHtml()
 
-            text3.text = getString(
-                R.string.terminal_tutorial_3,
-                "<font face=\"monospace\">sh $SH_NAME</font>",
-            ).toHtml()
-            summary3.text = getString(
-                R.string.terminal_tutorial_3_description,
-                shName, "<font face=\"monospace\">PATH</font>"
-            ).toHtml()
+            text3.text = getString(R.string.terminal_tutorial_3)
+            command3.text = "sh /path/to/$SH_NAME"
 
             button1.setOnClickListener { openDocumentsTree.launch(null) }
             button2.setOnClickListener { v: View -> CustomTabsHelper.launchUrlOrCopy(v.context, Helps.RISH.get()) }

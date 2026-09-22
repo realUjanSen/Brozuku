@@ -1,28 +1,29 @@
 plugins {
-    id 'com.android.application'
-    id 'dev.rikka.tools.refine'
+    id "com.android.application"
+    id "dev.rikka.tools.refine"
 }
 
 android {
-    namespace 'rikka.shizuku.shell'
+    namespace = "rikka.shizuku.shell"
     defaultConfig {
-        versionCode rootProject.ext.versionCode
-        versionName rootProject.ext.versionName
+        versionCode = rootProject.ext.versionCode
+        versionName = rootProject.ext.versionName
+        buildConfigField "String", "MANAGER_APPLICATION_ID", "\"${project(':manager').android.defaultConfig.applicationId}\""
     }
     buildTypes {
         debug {
-            multiDexEnabled false
+            multiDexEnabled = false
         }
         release {
-            minifyEnabled true
-            proguardFiles 'proguard-rules.pro'
+            minifyEnabled = true
+            proguardFiles = ["proguard-rules.pro"]
         }
     }
     dependenciesInfo {
-        includeInApk false
+        includeInApk = false
     }
     lint {
-        checkReleaseBuilds false
+        checkReleaseBuilds = false
     }
     buildFeatures {
         buildConfig = true
@@ -45,7 +46,7 @@ android.applicationVariants.all { variant ->
                 }
             }
             copy {
-                def file = zipTree(file(outputFile)).matching { include 'classes*.dex' }.singleFile
+                def file = zipTree(file(outputFile)).matching { include "classes*.dex" }.singleFile
 
                 from file
                 into dexPath

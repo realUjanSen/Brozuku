@@ -15,7 +15,6 @@ import moe.shizuku.manager.starter.StarterActivity
 import rikka.html.text.HtmlCompat
 import rikka.recyclerview.BaseViewHolder
 import rikka.recyclerview.BaseViewHolder.Creator
-import rikka.shizuku.Shizuku
 
 class StartRootViewHolder(private val binding: HomeStartRootBinding, root: View) :
     BaseViewHolder<Boolean>(root) {
@@ -63,18 +62,10 @@ class StartRootViewHolder(private val binding: HomeStartRootBinding, root: View)
             .append(
                 context.getString(
                     R.string.home_root_description,
-                    "<b><a href=\"https://dontkillmyapp.com/\">Don\'t kill my app!</a></b>"
-                )
-            )
-        if (Shizuku.pingBinder()) {
-            sb.append("<p>").append(
-                context.getString(
-                    R.string.home_root_description_sui,
                     "<b><a href=\"${Helps.SUI.get()}\">Sui</a></b>",
                     "Sui"
                 )
             )
-        }
 
         binding.text1.text = sb.toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
     }

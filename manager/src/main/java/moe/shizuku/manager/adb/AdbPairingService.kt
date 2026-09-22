@@ -8,12 +8,15 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.Observer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import moe.shizuku.manager.MainActivity
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
+import moe.shizuku.manager.home.HomeActivity
 import rikka.core.ktx.unsafeLazy
 import java.net.ConnectException
 
@@ -22,19 +25,22 @@ class AdbPairingService : Service() {
 
     companion object {
 
-        const val notificationChannel = "adb_pairing"
+        const val NOTIFICATION_CHANNEL = "adb_pairing"
+        const val NOTIFICATION_ID = 1
 
         private const val tag = "AdbPairingService"
 
-        private const val notificationId = 1
         private const val replyRequestId = 1
         private const val stopRequestId = 2
         private const val retryRequestId = 3
+        private const val launchRequestId = 4
+        private const val startRequestId = 5
         private const val startAction = "start"
         private const val stopAction = "stop"
         private const val replyAction = "reply"
         private const val remoteInputResultKey = "paring_code"
         private const val portKey = "paring_code"
+        private const val hostKey = "pairing_host"
 
         fun startIntent(context: Context): Intent {
             return Intent(context, AdbPairingService::class.java).setAction(startAction)
@@ -44,22 +50,23 @@ class AdbPairingService : Service() {
             return Intent(context, AdbPairingService::class.java).setAction(stopAction)
         }
 
-        private fun replyIntent(context: Context, port: Int): Intent {
-            return Intent(context, AdbPairingService::class.java).setAction(replyAction).putExtra(portKey, port)
+        private fun replyIntent(context: Context, host: String, port: Int): Intent {
+            return Intent(context, AdbPairingService::class.java).setAction(replyAction)
+                .putExtra(hostKey, host).putExtra(portKey, port)
         }
     }
 
     private var adbMdns: AdbMdns? = null
 
-    private val observer = Observer<Int> { port ->
-        Log.i(tag, "Pairing service port: $port")
+    private val observer = Observer<Pair<String, Int>> { (host, port) ->
+        Log.i(tag, "Pairing service host: $host, port: $port")
         if (port <= 0) return@Observer
 
         // Since the service could be killed before user finishing input,
-        // we need to put the port into Intent
-        val notification = createInputNotification(port)
+        // we need to put the host and port into Intent
+        val notification = createInputNotification(host, port)
 
-        getSystemService(NotificationManager::class.java).notify(notificationId, notification)
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
     }
 
     private var started = false
@@ -69,7 +76,7 @@ class AdbPairingService : Service() {
 
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(
-                notificationChannel,
+                NOTIFICATION_CHANNEL,
                 getString(R.string.notification_channel_adb_pairing),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
@@ -86,9 +93,10 @@ class AdbPairingService : Service() {
             }
             replyAction -> {
                 val code = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(remoteInputResultKey) ?: ""
+                val host = intent.getStringExtra(hostKey) ?: "127.0.0.1"
                 val port = intent.getIntExtra(portKey, -1)
                 if (port != -1) {
-                    onInput(code.toString(), port)
+                    onInput(code.toString(), host, port)
                 } else {
                     onStart()
                 }
@@ -104,18 +112,24 @@ class AdbPairingService : Service() {
         }
         if (notification != null) {
             try {
-                startForeground(notificationId, notification,
+                startForeground(NOTIFICATION_ID, notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
             } catch (e: Throwable) {
                 Log.e(tag, "startForeground failed", e)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
                     && e is ForegroundServiceStartNotAllowedException) {
-                    getSystemService(NotificationManager::class.java).notify(notificationId, notification)
+                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
                 }
             }
         }
         return START_REDELIVER_INTENT
+    }
+
+    override fun onTimeout(startId: Int) {
+        Toast.makeText(this, R.string.toast_pairing_timeout, Toast.LENGTH_SHORT).show()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun startSearch() {
@@ -140,10 +154,8 @@ class AdbPairingService : Service() {
         return searchingNotification
     }
 
-    private fun onInput(code: String, port: Int): Notification {
+    private fun onInput(code: String, host: String, port: Int): Notification {
         GlobalScope.launch(Dispatchers.IO) {
-            val host = "127.0.0.1"
-
             val key = try {
                 AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
             } catch (e: Throwable) {
@@ -164,7 +176,7 @@ class AdbPairingService : Service() {
     }
 
     private fun handleResult(success: Boolean, exception: Throwable?) {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopForeground(STOP_FOREGROUND_DETACH)
 
         val title: String
         val text: String?
@@ -202,20 +214,56 @@ class AdbPairingService : Service() {
         }
 
         getSystemService(NotificationManager::class.java).notify(
-            notificationId,
-            Notification.Builder(this, notificationChannel)
+            NOTIFICATION_ID,
+            Notification.Builder(this, NOTIFICATION_CHANNEL)
                 .setColor(getColor(R.color.notification))
                 .setSmallIcon(R.drawable.ic_system_icon)
                 .setContentTitle(title)
                 .setContentText(text)
-                /*.apply {
+                .apply {
                     if (!success) {
                         addAction(retryNotificationAction)
+                    } else {
+                        setContentIntent(launchPendingIntent)
+                        addAction(startNotificationAction)
+                        setAutoCancel(true)
                     }
-                }*/
+                }
                 .build()
         )
         stopSelf()
+    }
+
+    private val launchIntent by unsafeLazy {
+        Intent(this, MainActivity::class.java).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or 
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        }
+    }
+
+    private val launchPendingIntent by unsafeLazy {
+        PendingIntent.getActivity(
+            this, launchRequestId, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private val startNotificationAction by unsafeLazy {
+        val startIntent = Intent(launchIntent)
+            .putExtra(HomeActivity.EXTRA_START_SERVICE_VIA_WADB, true)
+
+        val pendingIntent = PendingIntent.getActivity(
+            this, startRequestId, startIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        Notification.Action.Builder(
+            null,
+            getString(R.string.home_root_button_start),
+            pendingIntent
+        )
+            .build()
     }
 
     private val stopNotificationAction by unsafeLazy {
@@ -265,7 +313,7 @@ class AdbPairingService : Service() {
         val pendingIntent = PendingIntent.getForegroundService(
             this,
             replyRequestId,
-            replyIntent(this, -1),
+            replyIntent(this, "127.0.0.1", -1),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             else
@@ -281,14 +329,14 @@ class AdbPairingService : Service() {
             .build()
     }
 
-    private fun replyNotificationAction(port: Int): Notification.Action {
+    private fun replyNotificationAction(host: String, port: Int): Notification.Action {
         // Ensure pending intent is created
         val action = replyNotificationAction
 
         PendingIntent.getForegroundService(
             this,
             replyRequestId,
-            replyIntent(this, port),
+            replyIntent(this, host, port),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             else
@@ -299,7 +347,7 @@ class AdbPairingService : Service() {
     }
 
     private val searchingNotification by unsafeLazy {
-        Notification.Builder(this, notificationChannel)
+        Notification.Builder(this, NOTIFICATION_CHANNEL)
             .setColor(getColor(R.color.notification))
             .setSmallIcon(R.drawable.ic_system_icon)
             .setContentTitle(getString(R.string.notification_adb_pairing_searching_for_service_title))
@@ -307,17 +355,17 @@ class AdbPairingService : Service() {
             .build()
     }
 
-    private fun createInputNotification(port: Int): Notification {
-        return Notification.Builder(this, notificationChannel)
+    private fun createInputNotification(host: String, port: Int): Notification {
+        return Notification.Builder(this, NOTIFICATION_CHANNEL)
             .setColor(getColor(R.color.notification))
             .setContentTitle(getString(R.string.notification_adb_pairing_service_found_title))
             .setSmallIcon(R.drawable.ic_system_icon)
-            .addAction(replyNotificationAction(port))
+            .addAction(replyNotificationAction(host, port))
             .build()
     }
 
     private val workingNotification by unsafeLazy {
-        Notification.Builder(this, notificationChannel)
+        Notification.Builder(this, NOTIFICATION_CHANNEL)
             .setColor(getColor(R.color.notification))
             .setContentTitle(getString(R.string.notification_adb_pairing_working_title))
             .setSmallIcon(R.drawable.ic_system_icon)

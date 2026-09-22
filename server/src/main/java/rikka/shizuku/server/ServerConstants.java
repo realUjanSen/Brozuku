@@ -1,5 +1,7 @@
 package rikka.shizuku.server;
 
+import moe.shizuku.server.BuildConfig;
+
 public class ServerConstants {
 
     public static final int MANAGER_APP_NOT_FOUND = 50;

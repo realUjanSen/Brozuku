@@ -4,12 +4,14 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.view.MenuItem
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.recyclerview.widget.RecyclerView.AdapterDataObserver
 import moe.shizuku.manager.Helps
 import moe.shizuku.manager.R
 import moe.shizuku.manager.app.AppBarActivity
 import moe.shizuku.manager.databinding.AppsActivityBinding
 import moe.shizuku.manager.utils.CustomTabsHelper
+import moe.shizuku.manager.utils.ShizukuStateMachine
 import rikka.lifecycle.Status
 import rikka.recyclerview.addEdgeSpacing
 import rikka.recyclerview.fixEdgeEffect
@@ -18,25 +20,23 @@ import java.util.*
 
 class ApplicationManagementActivity : AppBarActivity() {
 
-    private val viewModel by appsViewModel()
+    private val viewModel: AppsViewModel by viewModels()
     private val adapter = AppsAdapter()
 
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        if (!isFinishing) {
+    private val stateListener: (ShizukuStateMachine.State) -> Unit = {
+        if (ShizukuStateMachine.isDead() && !isFinishing)
             finish()
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!Shizuku.pingBinder()) {
+        if (!ShizukuStateMachine.isRunning()) {
             finish()
             return
         }
 
-        val binding = AppsActivityBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        val binding = AppsActivityBinding.inflate(layoutInflater, rootView, true)
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
@@ -56,9 +56,7 @@ class ApplicationManagementActivity : AppBarActivity() {
                 }
             }
         }
-        if (viewModel.packages.value == null) {
-            viewModel.load()
-        }
+        viewModel.load()
 
         val recyclerView = binding.list
         recyclerView.adapter = adapter
@@ -71,13 +69,12 @@ class ApplicationManagementActivity : AppBarActivity() {
             }
         })
 
-        Shizuku.addBinderDeadListener(binderDeadListener)
+        ShizukuStateMachine.addListener(stateListener)
     }
 
     override fun onDestroy() {
+        ShizukuStateMachine.removeListener(stateListener)
         super.onDestroy()
-
-        Shizuku.removeBinderDeadListener(binderDeadListener)
     }
 
     override fun onResume() {

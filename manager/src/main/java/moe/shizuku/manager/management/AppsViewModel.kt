@@ -1,29 +1,24 @@
 package moe.shizuku.manager.management
 
+import android.app.Application
 import android.content.Context
 import android.content.pm.PackageInfo
 import androidx.activity.ComponentActivity
 import androidx.annotation.MainThread
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.authorization.AuthorizationManager
 import rikka.lifecycle.Resource
-import rikka.lifecycle.activityViewModels
-import rikka.lifecycle.viewModels
 
-@MainThread
-fun ComponentActivity.appsViewModel() = viewModels { AppsViewModel(this) }
+class AppsViewModel(application: Application) : AndroidViewModel(application) {
 
-@MainThread
-fun Fragment.appsViewModel() = activityViewModels { AppsViewModel(requireContext()) }
-
-class AppsViewModel(context: Context) : ViewModel() {
+    private val appContext = getApplication<Application>().applicationContext
 
     private val _packages = MutableLiveData<Resource<List<PackageInfo>>>()
     val packages = _packages as LiveData<Resource<List<PackageInfo>>>
@@ -36,7 +31,9 @@ class AppsViewModel(context: Context) : ViewModel() {
             try {
                 val list: MutableList<PackageInfo> = ArrayList()
                 var count = 0
-                for (pi in AuthorizationManager.getPackages()) {
+                for (pi in AuthorizationManager.getPackages(
+                    exclude = listOf(appContext.packageName)
+                )) {
                     list.add(pi)
                     if (AuthorizationManager.granted(pi.packageName, pi.applicationInfo!!.uid)) count++
                 }
@@ -50,4 +47,5 @@ class AppsViewModel(context: Context) : ViewModel() {
             }
         }
     }
+    
 }
